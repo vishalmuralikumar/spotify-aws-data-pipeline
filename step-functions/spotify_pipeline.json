@@ -1,0 +1,23 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "RawToSilver",
+  "States": {
+    "RawToSilver": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Arguments": {
+        "JobName": "spotify-raw-to-silver"
+      },
+      "Next": "SilverToGold"
+    },
+    "SilverToGold": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Arguments": {
+        "JobName": "spotify-silver-to-gold"
+      },
+      "End": true
+    }
+  },
+  "QueryLanguage": "JSONata"
+}
