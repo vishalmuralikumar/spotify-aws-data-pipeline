@@ -121,6 +121,9 @@ Step Functions then orchestrates the transformation jobs sequentially.
 
 This allows the pipeline to operate without manual execution.
 
+<img width="1915" height="812" alt="image" src="https://github.com/user-attachments/assets/40b4583b-5701-44eb-8932-8fc7969bad5a" />
+
+
 ---
 
 ## Data Lake Architecture
@@ -377,6 +380,11 @@ FROM public.spotify_artists_gold;
 ---
 
 ## Monitoring with Amazon CloudWatch
+
+<img width="1917" height="762" alt="image" src="https://github.com/user-attachments/assets/21d649d0-962c-4194-9225-1ca58ad4ddff" />
+<img width="1917" height="827" alt="image" src="https://github.com/user-attachments/assets/e19ac196-55df-4b1e-88c5-92762d73e0d5" />
+
+
 
 Amazon CloudWatch provides centralized logging and monitoring.
 
