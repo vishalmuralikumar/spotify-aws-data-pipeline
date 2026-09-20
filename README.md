@@ -1,654 +1,650 @@
-\# Spotify AWS Data Engineering Pipeline
+# Spotify AWS Data Engineering Pipeline
 
+An end-to-end, automated, serverless data engineering pipeline that extracts data from the Spotify Web API, stores raw data in Amazon S3, transforms it through Bronze/Raw, Silver, and Gold layers using AWS Glue and PySpark, orchestrates ETL workflows with AWS Step Functions, and enables analytics through Amazon Athena and Amazon Redshift Serverless.
 
+The pipeline is automatically triggered using Amazon EventBridge Scheduler and monitored through Amazon CloudWatch.
 
-An end-to-end serverless data engineering project that extracts data from the Spotify Web API, processes it through a Medallion-style architecture on AWS, and delivers analytics-ready data through Amazon Athena and Amazon Redshift Serverless.
+---
 
+## Project Overview
 
+Modern data platforms require more than simply extracting data from an API. They need automated ingestion, scalable transformation, orchestration, monitoring, data quality controls, and analytics-ready storage.
 
-\## Project Overview
+This project demonstrates a production-style AWS data engineering workflow built using managed and serverless AWS services.
 
+The pipeline:
 
+- Extracts artist data from the Spotify Web API
+- Runs automatically on a schedule
+- Stores immutable raw JSON data in Amazon S3
+- Organizes raw data using date-based S3 partitions
+- Transforms data using AWS Glue and PySpark
+- Implements Raw → Silver → Gold data layers
+- Uses Spark window functions for distributed deduplication
+- Registers datasets in the AWS Glue Data Catalog
+- Enables SQL analytics using Amazon Athena
+- Loads curated Gold data into Amazon Redshift Serverless
+- Orchestrates ETL jobs using AWS Step Functions
+- Monitors executions using Amazon CloudWatch
+- Uses AWS IAM for service-level access control
 
-This project demonstrates how a production-style cloud data pipeline can be designed using managed and serverless AWS services.
+---
 
-
-
-The pipeline extracts Spotify artist data using Python, stores immutable API responses in Amazon S3, transforms the data through Raw, Silver, and Gold layers using AWS Glue and PySpark, catalogs the datasets with AWS Glue Data Catalog, performs analytics with Amazon Athena, and loads curated data into Amazon Redshift Serverless.
-
-
-
-Pipeline orchestration is handled with AWS Step Functions and Amazon EventBridge, while Amazon CloudWatch provides centralized logging and monitoring.
-
-
-
-\## Architecture
-
-
-
-```text
-
-&#x20;                      Spotify Web API
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                        AWS Lambda
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                   Amazon S3 - Raw JSON
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                    AWS Glue + PySpark
-
-&#x20;                      Raw -> Silver
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                 Amazon S3 - Silver Parquet
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                    AWS Glue + PySpark
-
-&#x20;                      Silver -> Gold
-
-&#x20;                             |
-
-&#x20;                             v
-
-&#x20;                  Amazon S3 - Gold Parquet
-
-&#x20;                        /           \\
-
-&#x20;                       /             \\
-
-&#x20;                      v               v
-
-&#x20;             Amazon Athena     Amazon Redshift
-
-&#x20;                 SQL              Serverless
-
-```
-
-
-
-\### Supporting AWS Services
-
-
+## Architecture
 
 ```text
+                   SPOTIFY AWS DATA ENGINEERING PIPELINE
 
-EventBridge -> Step Functions -> Glue ETL Jobs
+                         Amazon EventBridge
+                         Daily Scheduler
+                               |
+                               v
+                          AWS Lambda
+                               |
+                               v
+                        Spotify Web API
+                               |
+                               v
+                     Amazon S3 - Raw JSON
+                               |
+                               v
+                      AWS Step Functions
+                               |
+                               v
+                     AWS Glue + PySpark
+                       Raw -> Silver
+                               |
+                               v
+                  Amazon S3 - Silver Parquet
+                               |
+                               v
+                     AWS Glue + PySpark
+                       Silver -> Gold
+                               |
+                               v
+                   Amazon S3 - Gold Parquet
+                         /             \
+                        v               v
+                 Amazon Athena     Amazon Redshift
+                  SQL Analytics       Serverless
 
 
-
-AWS Glue Data Catalog -> Dataset Metadata
-
-
-
-Amazon CloudWatch -> Logs \& Monitoring
-
-
-
-AWS IAM -> Access Control
-
+              Monitoring : Amazon CloudWatch
+              Security   : AWS IAM
+              Metadata   : AWS Glue Data Catalog
 ```
 
+---
 
+## Automated Pipeline Execution
 
-\## Data Architecture
+The complete data pipeline is automated using Amazon EventBridge Scheduler.
 
+```text
+EventBridge Scheduler
+        |
+        v
+AWS Lambda
+        |
+        v
+Spotify Web API
+        |
+        v
+Amazon S3 Raw
+        |
+        v
+AWS Step Functions
+        |
+        v
+Glue Raw -> Silver
+        |
+        v
+S3 Silver
+        |
+        v
+Glue Silver -> Gold
+        |
+        v
+S3 Gold
+        |
+        +------------------+
+        |                  |
+        v                  v
+     Athena             Redshift
+```
 
+Amazon EventBridge invokes the Spotify extraction Lambda on a daily schedule.
+
+The Lambda authenticates with the Spotify Web API, extracts the required artist data, writes the API response into the Raw S3 layer, and starts the AWS Step Functions workflow.
+
+Step Functions then orchestrates the transformation jobs sequentially.
+
+This allows the pipeline to operate without manual execution.
+
+---
+
+## Data Lake Architecture
 
 The project follows a three-layer data architecture.
 
+### Raw Layer
 
+Raw responses from the Spotify Web API are stored as JSON without modifying the source structure.
 
-\### Raw Layer
-
-
-
-Stores the original Spotify Web API responses as JSON.
-
-
-
-Data is organized using date-based S3 prefixes:
-
-
+Example:
 
 ```text
-
-raw/spotify/
-
-└── year=YYYY/
-
-&#x20;   └── month=MM/
-
-&#x20;       └── day=DD/
-
-&#x20;           └── spotify\_TIMESTAMP.json
-
+s3://spotify-data-pipeline-vishal/
+└── raw/
+    └── spotify/
+        └── year=YYYY/
+            └── month=MM/
+                └── day=DD/
+                    └── spotify_TIMESTAMP.json
 ```
 
+Date-based S3 prefixes make the ingestion layer easier to organize and maintain.
 
+---
 
-\### Silver Layer
+### Silver Layer
 
+AWS Glue and PySpark process the raw JSON data and convert it into structured Parquet datasets.
 
+The Silver layer performs operations such as:
 
-AWS Glue and PySpark transform raw JSON into cleaned and structured Parquet datasets.
+- Schema normalization
+- Nested JSON extraction
+- Column selection
+- Type conversion
+- Null handling
+- Data cleaning
+- Deduplication
+- Parquet conversion
 
-
-
-The Silver layer provides:
-
-
-
-\- structured schemas
-
-\- cleaned fields
-
-\- normalized timestamps
-
-\- column selection
-
-\- analytics-friendly Parquet storage
-
-
-
-\### Gold Layer
-
-
-
-The Gold layer contains curated data designed for analytics and warehouse consumption.
-
-
-
-PySpark Window functions and `ROW\_NUMBER()` are used to retain the latest record for each artist.
-
-
-
-\## Pipeline Components
-
-
-
-\### AWS Lambda
-
-
-
-Python-based extraction calls the Spotify Web API and writes the API response to the S3 Raw layer.
-
-
-
-Secrets are provided through environment configuration and are never committed to the repository.
-
-
-
-\### Amazon S3
-
-
-
-S3 provides the data lake storage layer for:
-
-
+Example:
 
 ```text
-
-Raw -> JSON
-
-Silver -> Parquet
-
-Gold -> Parquet
-
+s3://spotify-data-pipeline-vishal/
+└── silver/
+    └── spotify/
 ```
 
+Parquet provides a columnar format suitable for analytical workloads.
 
+---
 
-\### AWS Glue + PySpark
+### Gold Layer
 
+The Gold layer contains curated, analytics-ready datasets.
 
-
-Two ETL jobs implement the transformation pipeline:
-
-
+Example:
 
 ```text
-
-spotify-raw-to-silver
-
-spotify-silver-to-gold
-
+s3://spotify-data-pipeline-vishal/
+└── gold/
+    └── artists/
 ```
 
-
-
-PySpark is used for distributed transformations, validation, deduplication, and Parquet generation.
-
-
-
-\### AWS Glue Data Catalog
-
-
-
-Metadata for the processed datasets is maintained in:
-
-
+The Gold artist dataset contains fields such as:
 
 ```text
-
-spotify\_silver\_db
-
-spotify\_gold\_db
-
+artist_id
+artist_name
+artist_type
+spotify_url
+image_url
+extracted_at
+extraction_date
+data_layer
 ```
 
+This dataset can be consumed directly by analytical services such as Athena and Redshift.
 
+---
 
-\### Amazon Athena
+## Data Transformation with PySpark
 
+AWS Glue provides managed Apache Spark compute for the transformation layer.
 
+The Gold transformation performs validation and deduplication before publishing the curated dataset.
 
-Athena provides serverless SQL analytics directly over the curated S3 datasets.
+A Spark Window is used to retain the latest record for each artist.
 
+Conceptually:
 
-
-The repository contains queries for:
-
-
-
-\- data validation
-
-\- freshness analysis
-
-\- data-quality checks
-
-\- window-function analytics
-
-
-
-\### Amazon Redshift Serverless
-
-
-
-Curated Gold Parquet data is loaded into Redshift Serverless for warehouse-based analytics.
-
-
-
-Warehouse table:
-
-
-
-```text
-
-public.spotify\_artists\_gold
-
+```python
+Window.partitionBy("artist_id").orderBy(
+    col("extracted_at").desc()
+)
 ```
 
+A row number is assigned within each artist partition, and only the latest record is retained.
 
+This provides distributed deduplication suitable for Spark workloads.
 
-\### AWS Step Functions
+---
 
+## Data Structures and Algorithms
 
+Data structures are used at different stages of the pipeline depending on the processing environment.
 
-Step Functions orchestrates the ETL workflow and ensures transformation jobs execute in sequence.
+During Python-based extraction, a Hash Set can be used for ID-based deduplication.
 
-
-
-```text
-
-Raw -> Silver
-
-&#x20;     |
-
-&#x20;     v
-
-Silver -> Gold
-
+```python
+seen_artist_ids = set()
 ```
 
-
-
-\### Amazon EventBridge
-
-
-
-EventBridge provides scheduled execution for the cloud pipeline.
-
-
-
-\### Amazon CloudWatch
-
-
-
-CloudWatch provides centralized logs for:
-
-
-
-\- Lambda executions
-
-\- Glue ETL jobs
-
-\- Glue crawlers
-
-\- pipeline troubleshooting
-
-
-
-\### AWS IAM
-
-
-
-IAM roles and policies enforce service-specific access between Lambda, S3, Glue, Redshift, Step Functions, and CloudWatch.
-
-
-
-\## Data Engineering Concepts Demonstrated
-
-
-
-\- Serverless data engineering
-
-\- ETL/ELT pipeline design
-
-\- Medallion architecture
-
-\- Data lake design
-
-\- JSON ingestion
-
-\- Parquet optimization
-
-\- PySpark transformations
-
-\- Distributed data processing
-
-\- Data deduplication
-
-\- Spark Window functions
-
-\- Data quality validation
-
-\- Data freshness monitoring
-
-\- Metadata management
-
-\- SQL analytics
-
-\- Cloud data warehousing
-
-\- Workflow orchestration
-
-\- Event-driven scheduling
-
-\- IAM-based security
-
-\- Cloud observability
-
-
-
-\## Project Structure
-
-
+Set membership provides average:
 
 ```text
+O(1)
+```
 
+lookup complexity.
+
+For distributed processing, Spark Window operations are used instead because the dataset can be processed across multiple workers.
+
+This demonstrates the difference between local in-memory deduplication and distributed data processing.
+
+---
+
+## AWS Step Functions Orchestration
+
+AWS Step Functions controls the ETL workflow.
+
+The transformation sequence is:
+
+```text
+Start
+  |
+  v
+RawToSilver
+  |
+  v
+SilverToGold
+  |
+  v
+End
+```
+
+The Raw-to-Silver Glue job must complete successfully before the Silver-to-Gold job begins.
+
+This provides deterministic workflow execution and prevents downstream transformations from running before their dependencies are ready.
+
+---
+
+## Amazon EventBridge Scheduler
+
+Amazon EventBridge Scheduler provides time-based pipeline automation.
+
+The active production schedule invokes:
+
+```text
+spotify-data-extraction
+```
+
+The Lambda subsequently starts the Step Functions workflow after successfully writing the raw Spotify response to S3.
+
+An older duplicate extraction schedule was disabled to prevent the pipeline from executing twice.
+
+---
+
+## AWS Glue Data Catalog
+
+AWS Glue Data Catalog provides centralized metadata management for the datasets stored in Amazon S3.
+
+Separate databases are used for analytical layers.
+
+```text
+spotify_silver_db
+spotify_gold_db
+```
+
+The Silver catalog contains structured transformed datasets.
+
+The Gold catalog contains curated analytics-ready datasets.
+
+AWS Glue Crawlers detect Parquet schemas and register tables in the Data Catalog.
+
+---
+
+## Amazon Athena
+
+Amazon Athena provides serverless SQL analytics directly on top of S3.
+
+Example:
+
+```sql
+SELECT *
+FROM spotify_gold_db.artists
+LIMIT 10;
+```
+
+More advanced analytical queries can use:
+
+- Common Table Expressions
+- Window functions
+- Aggregations
+- Data quality checks
+- Freshness calculations
+- Ranking
+- Distinct counts
+
+Because Athena queries data directly from S3, no dedicated database server is required for exploratory analytics.
+
+---
+
+## Amazon Redshift Serverless
+
+Amazon Redshift Serverless is used as the analytical warehouse layer.
+
+A curated table was created for the Gold artist dataset:
+
+```sql
+CREATE TABLE public.spotify_artists_gold (
+    artist_id       VARCHAR(255),
+    artist_name     VARCHAR(500),
+    artist_type     VARCHAR(100),
+    spotify_url     VARCHAR(1000),
+    image_url       VARCHAR(2000),
+    extracted_at    TIMESTAMP,
+    extraction_date DATE,
+    data_layer      VARCHAR(50)
+);
+```
+
+Gold Parquet data can be loaded from Amazon S3 using:
+
+```sql
+COPY public.spotify_artists_gold
+FROM 's3://spotify-data-pipeline-vishal/gold/artists/'
+IAM_ROLE default
+FORMAT AS PARQUET;
+```
+
+The loaded dataset can then be queried using standard SQL.
+
+Example:
+
+```sql
+SELECT
+    COUNT(*) AS total_rows,
+    MAX(extracted_at) AS latest_extraction
+FROM public.spotify_artists_gold;
+```
+
+---
+
+## Monitoring with Amazon CloudWatch
+
+Amazon CloudWatch provides centralized logging and monitoring.
+
+CloudWatch logs are available for:
+
+```text
+AWS Lambda
+AWS Glue jobs
+AWS Glue Crawlers
+```
+
+The Lambda execution logs provide visibility into stages such as:
+
+```text
+Starting Spotify data extraction
+        ↓
+Spotify authentication successful
+        ↓
+Artist extracted
+        ↓
+Spotify data uploaded to Amazon S3
+        ↓
+Step Functions pipeline started
+```
+
+This provides operational evidence that the automated pipeline is executing correctly.
+
+---
+
+## Security
+
+AWS IAM controls communication between services.
+
+Dedicated roles and policies are used for:
+
+```text
+Lambda → S3
+Lambda → Step Functions
+Glue → S3
+Step Functions → Glue
+Redshift → S3
+EventBridge → Lambda
+```
+
+Credentials and secrets are not committed to the Git repository.
+
+Local environment variables should be stored in:
+
+```text
+.env
+```
+
+The `.env` file is excluded using `.gitignore`.
+
+Only a template is committed:
+
+```text
+.env.example
+```
+
+Example:
+
+```env
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+AWS_REGION=ap-southeast-2
+S3_BUCKET=your_bucket_name
+```
+
+Never commit real credentials or AWS access keys.
+
+---
+
+## Project Structure
+
+```text
 spotify-aws-data-pipeline/
-
-|
-
+│
 ├── architecture/
-
 │   └── architecture.md
-
-|
-
+│
 ├── docs/
-
-│   └── deployment-guide.md
-
-|
-
+│   └── images/
+│
 ├── glue/
-
-│   ├── raw\_to\_silver.py
-
-│   └── silver\_to\_gold.py
-
-|
-
+│   ├── raw_to_silver.py
+│   └── silver_to_gold.py
+│
 ├── iam/
-
-│   └── README.md
-
-|
-
+│   └── policies/
+│
 ├── lambda/
-
-│   └── spotify\_data\_extraction.py
-
-|
-
+│   └── spotify_data_extraction.py
+│
 ├── sql/
-
-│   ├── athena\_queries.sql
-
-│   └── redshift\_queries.sql
-
-|
-
+│   ├── athena_queries.sql
+│   └── redshift_queries.sql
+│
 ├── step-functions/
-
-│   └── spotify\_pipeline.json
-
-|
-
+│   └── spotify_pipeline.json
+│
 ├── .env.example
-
 ├── .gitignore
-
 ├── .python-version
-
+├── LICENSE
 ├── pyproject.toml
-
-├── uv.lock
-
-└── README.md
-
+├── README.md
+└── uv.lock
 ```
 
+---
 
+## Technology Stack
 
-\## Local Development
+| Category | Technology |
+|---|---|
+| Programming | Python |
+| API | Spotify Web API |
+| Cloud Platform | AWS |
+| Serverless Compute | AWS Lambda |
+| Object Storage | Amazon S3 |
+| Data Processing | AWS Glue |
+| Distributed Processing | Apache Spark / PySpark |
+| Workflow Orchestration | AWS Step Functions |
+| Scheduling | Amazon EventBridge Scheduler |
+| Metadata | AWS Glue Data Catalog |
+| SQL Analytics | Amazon Athena |
+| Data Warehouse | Amazon Redshift Serverless |
+| Monitoring | Amazon CloudWatch |
+| Security | AWS IAM |
+| Data Format | JSON / Apache Parquet |
+| Dependency Management | uv |
+| Version Control | Git / GitHub |
 
+---
 
-
-This repository uses `uv` for Python environment and dependency management.
-
-
-
-Install the project dependencies:
-
-
-
-```bash
-
-uv sync
-
-```
-
-
-
-Verify Python:
-
-
-
-```bash
-
-uv run python --version
-
-```
-
-
-
-\## Environment Variables
-
-
-
-Create a local `.env` from `.env.example` when testing locally.
-
-
-
-Required configuration includes:
-
-
+## Pipeline Workflow
 
 ```text
-
-SPOTIFY\_CLIENT\_ID
-
-SPOTIFY\_CLIENT\_SECRET
-
-AWS\_REGION
-
-S3\_BUCKET
-
-S3\_RAW\_PREFIX
-
+1. EventBridge triggers the pipeline
+                ↓
+2. Lambda authenticates with Spotify
+                ↓
+3. Spotify Web API data is extracted
+                ↓
+4. Raw JSON is written to Amazon S3
+                ↓
+5. Lambda starts Step Functions
+                ↓
+6. Step Functions starts Raw → Silver Glue job
+                ↓
+7. PySpark cleans and structures the data
+                ↓
+8. Silver Parquet is written to S3
+                ↓
+9. Step Functions starts Silver → Gold Glue job
+                ↓
+10. Gold dataset is created
+                ↓
+11. Glue Data Catalog exposes the datasets
+                ↓
+12. Athena provides serverless SQL analytics
+                ↓
+13. Gold data can be loaded into Redshift Serverless
+                ↓
+14. CloudWatch provides execution monitoring
 ```
 
+---
 
+## Key Engineering Concepts Demonstrated
 
-Never commit the real `.env` file or AWS credentials.
+This project demonstrates practical implementation of:
 
+- ETL / ELT pipeline development
+- REST API data ingestion
+- Serverless data engineering
+- Data lake architecture
+- Raw / Silver / Gold data modeling
+- Apache Spark transformations
+- Distributed deduplication
+- Columnar Parquet storage
+- Workflow orchestration
+- Scheduled data pipelines
+- Data cataloging
+- Serverless SQL analytics
+- Cloud data warehousing
+- IAM access control
+- Pipeline monitoring
+- Environment variable management
+- Git-based source control
 
+---
 
-\## SQL Analytics
+## What I Learned
 
+Building this project provided hands-on experience designing a cloud-native data pipeline rather than working with isolated AWS services.
 
+Key learning areas included:
 
-Athena queries are available at:
+- Designing an end-to-end AWS data architecture
+- Integrating external APIs with AWS Lambda
+- Organizing S3 as a multi-layer data lake
+- Processing semi-structured JSON with PySpark
+- Building managed Spark ETL jobs with AWS Glue
+- Using Spark Window functions for deduplication
+- Managing metadata using Glue Crawlers and the Data Catalog
+- Querying S3 datasets using Athena
+- Loading Parquet datasets into Redshift Serverless
+- Orchestrating dependent ETL jobs using Step Functions
+- Automating executions with EventBridge Scheduler
+- Troubleshooting IAM permissions between AWS services
+- Monitoring serverless workloads using CloudWatch
+- Managing secrets safely outside Git
 
+---
 
-
-```text
-
-sql/athena\_queries.sql
-
-```
-
-
-
-Redshift warehouse queries are available at:
-
-
-
-```text
-
-sql/redshift\_queries.sql
-
-```
-
-
-
-\## Monitoring
-
-
-
-The pipeline uses Amazon CloudWatch for operational visibility.
-
-
-
-CloudWatch log groups capture Lambda extraction activity, Glue ETL execution output, errors, and crawler activity.
-
-
-
-\## Future Enhancements
-
-
+## Future Improvements
 
 Potential extensions include:
 
+- AWS Secrets Manager for Spotify credentials
+- Least-privilege IAM policies
+- Automated Redshift loading as part of orchestration
+- Step Functions retry and failure-handling logic
+- CloudWatch alarms and notifications
+- Dead-letter queues
+- Data quality validation framework
+- Incremental processing
+- CI/CD deployment
+- Infrastructure as Code using Terraform or AWS CDK
+- Power BI integration with the analytical layer
+- Additional Spotify entities such as albums, tracks, and playlists
 
+---
 
-\- Power BI integration with the warehouse layer
+## Project Status
 
-\- AWS Secrets Manager for Spotify credentials
+**Completed**
 
-\- automated Redshift loading as part of orchestration
-
-\- CloudWatch alarms and notifications
-
-\- CI/CD deployment
-
-\- Infrastructure as Code using Terraform or AWS CDK
-
-
-
-\## Security
-
-
-
-No API secrets, AWS access keys, passwords, or private credentials are stored in this repository.
-
-
-
-Sensitive values should be supplied through secure environment configuration or AWS-managed secret services.
-
-
-
-\## Tech Stack
-
-
-
-\*\*Programming:\*\* Python, SQL, PySpark
-
-
-
-\*\*AWS:\*\* Lambda, S3, Glue, Glue Data Catalog, Athena, Redshift Serverless, Step Functions, EventBridge, CloudWatch, IAM
-
-
-
-\*\*Data Formats:\*\* JSON, Parquet
-
-
-
-\*\*Development:\*\* uv, Git, GitHub
-
-
-
-\## Status
-
-
-
-Core data pipeline completed and validated on AWS.
-
-
+The core AWS data engineering pipeline has been implemented and validated end-to-end.
 
 ```text
-
-Spotify API
-
-&#x20;  -> S3 Raw
-
-&#x20;  -> Glue/PySpark Silver
-
-&#x20;  -> Glue/PySpark Gold
-
-&#x20;  -> Athena
-
-&#x20;  -> Redshift Serverless
-
+Spotify API       ✓
+AWS Lambda        ✓
+Amazon S3         ✓
+AWS Glue          ✓
+PySpark           ✓
+Glue Data Catalog ✓
+AWS Step Functions✓
+EventBridge       ✓
+Amazon Athena     ✓
+Redshift Serverless ✓
+Amazon CloudWatch ✓
+AWS IAM           ✓
+GitHub            ✓
 ```
 
+---
+
+## Author
+
+**Vishal Muralikumar**
+
+Data Engineering | Cloud Data Platforms | AWS | Python | PySpark
+
+---
+
+## License
+
+This project is licensed under the MIT License.
